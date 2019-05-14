@@ -11,7 +11,7 @@ import uuid from './system/uuid';
 
 const { reads } = computed;
 
-function normalizeOptions(file, url, options) {
+function normalizeOptions(file, url, options, skipConvertToFormData) {
   if (typeof url === 'object') {
     options = url;
     url = null;
@@ -36,26 +36,28 @@ function normalizeOptions(file, url, options) {
     options.headers.Accept = options.accepts.join(',');
   }
 
-  // Set Content-Type in the data payload
-  // instead of the headers, since the header
-  // for Content-Type will always be multipart/form-data
-  if (options.contentType) {
-    options.data['Content-Type'] = options.contentType;
-  }
+  if (!skipConvertToFormData) {
+    // Set Content-Type in the data payload
+    // instead of the headers, since the header
+    // for Content-Type will always be multipart/form-data
+    if (options.contentType) {
+        options.data['Content-Type'] = options.contentType;
+    }
 
-  options.data[options.fileKey] = file.blob;
+    options.data[options.fileKey] = file.blob;
+  }
 
   options.withCredentials = options.withCredentials || false;
 
   return options;
 }
 
-function upload(file, url, opts, uploadFn) {
+function upload(file, url, opts, uploadFn, skipConvertToFormData) {
   if (['queued', 'failed', 'timed_out', 'aborted'].indexOf(get(file, 'state')) === -1) {
     assert(`The file ${file.id} is in the state "${get(file, 'state')}" and cannot be requeued.`);
   }
 
-  let options = normalizeOptions(file, url, opts);
+  let options = normalizeOptions(file, url, opts, skipConvertToFormData);
 
   let request = new HTTPRequest({
     withCredentials: options.withCredentials,
@@ -287,23 +289,31 @@ export default EmberObject.extend({
    * @method upload
    * @param {String} url Your server endpoint where to upload the file
    * @param {Hash} opts { fileKey: string, data: { key: string } }
+   * @param {function} skipConvertToFormData
    * @return {Promise}
    */
-  upload(url, opts) {
+  upload(url, opts, skipConvertToFormData) {
     return upload(this, url, opts, (request, options) => {
-      // Build the form
-      let form = new FormData();
 
-      Object.keys(options.data).forEach((key) => {
-        if (key === options.fileKey) {
-          form.append(key, options.data[key], get(this, 'name'));
-        } else {
-          form.append(key, options.data[key]);
-        }
-      });
+      if (skipConvertToFormData) {
 
-      return request.send(form);
-    });
+        return request.send(JSON.stringify(options.data));
+
+      } else {
+        // Build the form
+        let form = new FormData();
+
+        Object.keys(options.data).forEach((key) => {
+          if (key === options.fileKey) {
+            form.append(key, options.data[key], get(this, 'name'));
+          } else {
+            form.append(key, options.data[key]);
+          }
+        });
+
+        return request.send(form);
+      }
+    }, skipConvertToFormData);
   },
 
   /**
